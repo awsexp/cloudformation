@@ -1,0 +1,52 @@
+# Creates a DLM lifecycle policy as follows:
+# Daily Snapshots Schedule
+# Every 24 hours
+
+Description: "Basic LifecyclePolicy"
+Resources:
+  TeemDLMIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - dlm.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole"
+      Path: /
+  TeemDLMPolicy:
+    Type: "AWS::DLM::LifecyclePolicy"
+    Properties:
+      Description: "teemops daily snapshots"
+      State: "ENABLED"
+      ExecutionRoleArn: !GetAtt
+        - TeemDLMIAMRole
+        - Arn
+      PolicyDetails:
+        ResourceTypes:
+          - "VOLUME"
+        TargetTags:
+          - Key: "TeemDLM"
+            Value: "daily"
+
+        Schedules:
+          - Name: "teem-daily"
+            TagsToAdd:
+              - Key: "type"
+                Value: "daily"
+              - Key: "tool"
+                Value: "teemops"
+
+            CreateRule:
+              Interval: 24
+              IntervalUnit: "HOURS"
+              Times:
+                - "01:00"
+            RetainRule:
+              Count: 7
+            CopyTags: true

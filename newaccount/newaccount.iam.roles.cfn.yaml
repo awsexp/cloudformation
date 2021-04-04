@@ -1,0 +1,275 @@
+# Sets up new account with following roles:
+# Administrator
+# CloudOps User (Full READ ONLY + Can only start, stop and restart EC2, RDS, View EBS Backups, Create AMIs, Snapshots for EBS and RDS)
+# ReadOnly
+#
+# Enforces:
+# Must be from root IAM Account (as defined in parameters)
+# MFA enabled for user
+## This template creates IAM Cross-Account Roles in the various environment accounts
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "IAM Roles are setup for CA Access from root IAM account"
+Parameters:
+  # Root IAM account ID
+  IAMRootAccountId:
+    Type: String
+    Description: "Root account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+Resources:
+  # ----------------------------------
+  # Cross Account ROLES
+  # ----------------------------------
+
+  # Company Admin Read-Only
+  CompanyAdminRO:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "CompanyAdminRO"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Ref IAMRootAccountId
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+
+  # Company Admin Full
+  CompanyAdminFull:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "CompanyAdminFull"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Ref IAMRootAccountId
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+
+  # Company Ops
+  CompanyOps:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "CompanyOps"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Ref IAMRootAccountId
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+
+  # ----------------------------------
+  # POLICIES
+  # ----------------------------------
+
+  # USER
+
+  # Company Admin Read-Only Deny Policy
+  CompanyAdminRODenyPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref CompanyAdminRO
+      PolicyName: "CloudUserAdminRO"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "DenyIAMAll"
+            Effect: "Deny"
+            Action:
+              - "iam:*"
+            Resource: "*"
+          - Sid: "DenyKMSAll"
+            Effect: "Deny"
+            Action:
+              - "kms:*"
+            Resource: "*"
+          - Sid: "DenyCloudTrailAll"
+            Effect: "Deny"
+            Action:
+              - "cloudtrail:*"
+            Resource: "*"
+          - Sid: "DenyEC2IGWAll"
+            Effect: "Deny"
+            Action:
+              - "ec2:*InternetGateway*"
+            Resource: "*"
+          - Sid: "DenyEC2RouteTableAll"
+            Effect: "Deny"
+            Action:
+              - "ec2:AssociateRouteTable"
+              - "ec2:CreateRoute"
+              - "ec2:CreateRouteTable"
+              - "ec2:DeleteRoute"
+              - "ec2:DeleteRouteTable"
+              - "ec2:DescribeRouteTables"
+              - "ec2:DisableVgwRoutePropagation"
+              - "ec2:DisassociateRouteTable"
+              - "ec2:EnableVgwRoutePropagation"
+              - "ec2:ReplaceRoute"
+              - "ec2:ReplaceRouteTableAssociation"
+            Resource: "*"
+
+  # Company Admin Full Deny Policy
+  CompanyAdminFullDenyPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref CompanyAdminFull
+      PolicyName: "CloudUserAdminFull"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "DenyIAMWrite"
+            Effect: "Deny"
+            Action:
+              - "iam:Get*"
+              - "iam:List*"
+            Resource: "*"
+          - Sid: "DenyKMSWrite"
+            Effect: "Deny"
+            Action:
+              - "kms:Get*"
+              - "kms:List*"
+            Resource: "*"
+          - Sid: "DenyCloudTrailWrite"
+            Effect: "Deny"
+            Action:
+              - "cloudtrail:Get*"
+              - "cloudtrail:List*"
+            Resource: "*"
+          - Sid: "DenyEC2IGWWrite"
+            Effect: "Deny"
+            Action:
+              - "ec2:DescribeInternetGateways"
+              - "ec2:DescribeEgressOnlyInternetGateways"
+            Resource: "*"
+          - Sid: "DenyEC2RouteTableWrite"
+            Effect: "Deny"
+            Action:
+              - "ec2:DescribeRouteTables"
+            Resource: "*"
+          - Sid: "DenyDirectConnectWrite"
+            Effect: "Deny"
+            Action:
+              - "directconnect:Describe*"
+            Resource: "*"
+          - Sid: "DenyBilling"
+            Effect: "Deny"
+            Action:
+              - "billing:*"
+            Resource: "*"
+
+  # Company Ops Policy
+  CompanyOpsPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref CompanyOps
+      PolicyName: "CloudUserOps"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "ManageEC2Instances"
+            Effect: "Allow"
+            Action:
+              - "ec2:StartInstances"
+              - "ec2:StopInstances"
+              - "ec2:RebootInstances"
+            Resource: "*"
+          - Sid: "ManageEC2EBSVolumes"
+            Effect: "Allow"
+            Action:
+              - "ec2:AttachVolume"
+              - "ec2:CopySnapshot"
+              - "ec2:CreateSnapshot"
+              - "ec2:CreateVolume"
+              - "ec2:EnableVolumeIO"
+              - "ec2:ModifySnapshotAttribute"
+              - "ec2:ModifyVolume"
+              - "ec2:ModifyVolumeAttribute"
+              - "ec2:ResetSnapshotAttribute"
+            Resource: "*"
+          - Sid: "ManageEC2AMIs"
+            Effect: "Allow"
+            Action:
+              - "ec2:CopyImage"
+              - "ec2:CreateImage"
+              - "ec2:DescribeImageAttribute"
+              - "ec2:DescribeImages"
+              - "ec2:ModifyImageAttribute"
+              - "ec2:RegisterImage"
+              - "ec2:ResetImageAttribute"
+            Resource: "*"
+          - Sid: "ManageRDSInstances"
+            Effect: "Allow"
+            Action:
+              - "rds:StartDBInstance"
+              - "rds:StopDBInstance"
+              - "rds:RebootDBInstance"
+            Resource: "*"
+          - Sid: "ManageRDSSnapshots"
+            Effect: "Allow"
+            Action:
+              - "rds:CopyDBClusterSnapshot"
+              - "rds:CopyDBSnapshot"
+              - "rds:CreateDBClusterSnapshot"
+              - "rds:CreateDBSnapshot"
+              - "rds:DescribeDBClusterSnapshotAttributes"
+              - "rds:DescribeDBClusterSnapshots"
+              - "rds:DescribeDBSnapshotAttributes"
+              - "rds:DescribeDBSnapshots"
+              - "rds:ModifyDBClusterSnapshotAttribute"
+              - "rds:ModifyDBSnapshot"
+              - "rds:ModifyDBSnapshotAttribute"
+              - "rds:RestoreDBClusterFromSnapshot"
+              - "rds:RestoreDBInstanceFromDBSnapshot"
+            Resource: "*"
+
+Outputs:
+  # Stack Name
+  StackName:
+    Description: "Stack name"
+    Value: !Sub "${AWS::StackName}"
+
+  # USER ROLES
+
+  # Company Admin Read-Only
+  CompanyAdminRO:
+    Description: "Company Admin Read-Only Role"
+    Value: !Ref "CompanyAdminRO"
+
+  # Company Admin Full
+  CompanyAdminFull:
+    Description: "Company Admin Full Access Role"
+    Value: !Ref "CompanyAdminFull"
+
+  # Company Ops
+  CompanyOps:
+    Description: "Company Ops Role"
+    Value: !Ref "CompanyOps"

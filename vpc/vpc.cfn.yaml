@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Teemops VPC Template
+Parameters:
+  Name:
+    Type: String
+  CIDR:
+    Description: VPC CIDR
+    Type: String
+  Option:
+    Description: What type of subnet structure and routing used for VPC types in Mappings
+    Type: String
+    AllowedValues: ['basic', 'standard', 'private', 'public']
+  NATGateway:
+    Description: If this VPC will have a NAT Gateway or not
+    Type: String
+    AllowedValues: ['true', 'false']
+Conditions:
+  HasPublicSubnet1: !Or 
+    - !Equals [!Ref Option, basic]
+    - !Equals [!Ref Option, standard]
+    - !Equals [!Ref Option, public]
+  HasPublicSubnet2: !Or 
+    - !Equals [!Ref Option, standard]
+    - !Equals [!Ref Option, public]
+  HasPrivateSubnet1: !Or 
+    - !Equals [!Ref Option, standard]
+    - !Equals [!Ref Option, private]
+  HasPrivateSubnet2: !Or 
+    - !Equals [!Ref Option, standard]
+    - !Equals [!Ref Option, private]
+  HasNAT: !Equals [!Ref NATGateway, 'true']
+  
+Resources:
+  TopsVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Ref Name
+        - Key: BuiltBy
+          Value: TeemOps
+  TopsInternetGateway:  
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags:
+      - Key: Name
+        Value: tops-igw
+  TopsAttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TopsVPC
+      InternetGatewayId: !Ref TopsInternetGateway
+  # Public Subnets
+  TopsSubnet1Public:
+    Condition: HasPublicSubnet1
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TopsVPC
+      CidrBlock: !Select [ 0, !Cidr [ !GetAtt TopsVPC.CidrBlock, 6, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-1
+  TopsSubnet2Public:
+    Condition: HasPublicSubnet2
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TopsVPC
+      CidrBlock: !Select [ 1, !Cidr [ !GetAtt TopsVPC.CidrBlock, 6, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-2
+  TopsSubnet1Private:
+    Condition: HasPrivateSubnet1
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TopsVPC
+      CidrBlock: !Select [ 2, !Cidr [ !GetAtt TopsVPC.CidrBlock, 6, 8 ]]
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: private-subnet-1
+  TopsSubnet2Private:
+    Condition: HasPrivateSubnet2
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TopsVPC
+      CidrBlock: !Select [ 3, !Cidr [ !GetAtt TopsVPC.CidrBlock, 6, 8 ]]
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: private-subnet-2
+  # Private RT
+  TopsPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TopsVPC
+      Tags:
+        - Key: Name
+          Value: tops-private
+  # Public RT
+  TopsPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TopsVPC
+      Tags:
+        - Key: Name
+          Value: tops-public
+  #Public Route (Private route will be created automatically)
+  TopsPublicRouteInternet:
+    Type: AWS::EC2::Route
+    DependsOn: TopsInternetGateway
+    Properties:
+       RouteTableId:
+         Ref: TopsPublicRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: TopsInternetGateway
+  TopsNATGateway:
+    Condition: HasNAT
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - TopsEIP
+        - AllocationId
+      SubnetId:
+        Ref: TopsSubnet1Public
+      Tags:
+      - Key: Name
+        Value: tops-natgw
+  TopsEIP:
+    Condition: HasNAT
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  TopsPrivateRouteNAT:
+    Condition: HasNAT
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: TopsPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: TopsNATGateway

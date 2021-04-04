@@ -1,0 +1,76 @@
+# Sets up security account with groups to assume roles in other parts of the company and manage IAM
+# Groups setup are
+# All Users
+# IAM Admins (Full READ ONLY + Can only start, stop and restart EC2, RDS, View EBS Backups, Create AMIs, Snapshots for EBS and RDS)
+# Support Users
+# Production
+#   Full Admin
+#   Operations
+#   Read-Only
+# Development
+#   Full Admin
+#   Operations
+#   Read-Only
+# Billing
+#   Full Admin
+#   Operations - Not Operational
+#   Read-Only - Not Operational
+#
+
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Setup default IAM groups and policies to assume roles in other parts of the organisation'
+Parameters:
+  # Production IAM account ID
+  IAMProdAccountId:
+    Type: String
+    Description: "Production account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+Resources: 
+
+
+
+  # ----------------------------------
+  # CROSS-ACCOUNT GROUPS
+  # ----------------------------------
+
+
+  # ---- PROD ----
+
+
+  CompanyProdAdminRO:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyProdAdminRO
+      Path: '/'
+
+
+
+
+  # ----------------------------------
+  # CROSS-ACCOUNT ASSUME POLICIES
+  # ----------------------------------
+
+  # ---- PROD ----
+
+  AssumeProdAdminRORole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeProdAdminRORole
+      Groups:
+        - !Ref CompanyProdAdminRO
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeProdAdminRORole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+              - AccountID: !Ref IAMProdAccountId
+

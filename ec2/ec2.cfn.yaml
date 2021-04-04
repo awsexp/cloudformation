@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Teemops EC2 Initial Launch Template
+Parameters:
+  AMI:
+    Description: EC2 AMI
+    Type: AWS::EC2::Image::Id
+  InstanceType:
+    Description: Amazon EC2 instance type
+    Type: String
+  RootVolumeSize:
+    Description: Root EBS Volume Size in GB
+    Type: Number
+  AppId:
+    Description: Teemops App ID
+    Type: String
+  AppName:
+    Description: Teemops App Name
+    Type: String
+  CustomerId:
+    Description: Teemops Customer ID
+    Type: String
+  KeyPair:
+    Description: EC2 KeyPair
+    Type: AWS::EC2::KeyPair::KeyName
+  Subnet:
+    Description: Subnet
+    Type: List<AWS::EC2::Subnet::Id>
+  SecurityGroup:
+    Description: Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+  HasPublicIp:
+    Description: ASG instances have Public IP
+    Type: String
+    AllowedValues: ["true", "false"]
+  HasElasticIp:
+    Description: EC2 instance has Elastic IP
+    Type: String
+    AllowedValues: ["true", "false"]
+Conditions:
+  ConditionPublicIp: !Equals [!Ref HasPublicIp, "true"]
+  ConditionElasticIp: !Equals [!Ref HasElasticIp, "true"]
+Resources:
+  TopsElasticIp:
+    Type: AWS::EC2::EIP
+    Condition: ConditionElasticIp
+    DependsOn: TopsEc2
+    Properties:
+      InstanceId: !Ref TopsEc2
+      Tags:
+        - Key: Name
+          Value: !Ref AppName
+        - Key: topsid
+          Value: !Ref AppId
+  TopsEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPair
+      IamInstanceProfile: !Ref TopsEc2InstanceProfile
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: !Ref HasPublicIp
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref SecurityGroup
+          SubnetId: !Select [0, !Ref Subnet]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: !Ref RootVolumeSize
+      Tags:
+        - Key: Name
+          Value: !Ref AppName
+        - Key: topsid
+          Value: !Ref AppId
+        - Key: topscustomerid
+          Value: !Ref CustomerId
+  TopsEc2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  TopsEc2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: TopsEc2Role
+Outputs:
+  InstanceId:
+    Description: EC2 InstanceId
+    Value: !Ref TopsEc2
+  PrivateIp:
+    Description: EC2 Private IP
+    Value:
+      Fn::GetAtt:
+        - TopsEc2
+        - PrivateIp
+  PublicIp:
+    Condition: ConditionPublicIp
+    Description: EC2 Public IP
+    Value:
+      Fn::GetAtt:
+        - TopsEc2
+        - PublicIp

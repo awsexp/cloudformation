@@ -1,0 +1,99 @@
+# Sets up new account with following roles:
+# Billing - Can do everything with billing
+#
+# Enforces:
+# Must be from root IAM Account (as defined in parameters)
+# MFA enabled for user
+## This template creates an IAM Cross-Account Role in the billing environment accounts
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "IAM Roles are setup for CA Access from root IAM account"
+Parameters:
+  # Root IAM account ID
+  IAMRootAccountId:
+    Type: String
+    Description: "Root account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+Resources:
+  # ----------------------------------
+  # Cross Account ROLES
+  # ----------------------------------
+
+  # Company Admin Read-Only
+  CompanyBilling:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "CompanyBilling"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Ref IAMRootAccountId
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              Bool:
+                aws:MultiFactorAuthPresent: true
+
+  # ----------------------------------
+  # POLICIES
+  # ----------------------------------
+
+  # USER
+
+  # Company Admin Read-Only Deny Policy
+  CompanyBillingPolicy:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      Roles:
+        - !Ref CompanyBilling
+      PolicyName: "CloudBilling"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "DenyIAMAll"
+            Effect: "Deny"
+            Action:
+              - "iam:*"
+            Resource: "*"
+          - Sid: "DenyKMSAll"
+            Effect: "Deny"
+            Action:
+              - "kms:*"
+            Resource: "*"
+          - Sid: "DenyCloudTrailAll"
+            Effect: "Deny"
+            Action:
+              - "cloudtrail:*"
+            Resource: "*"
+          - Sid: "DenyEC2All"
+            Effect: "Deny"
+            Action:
+              - "ec2:*"
+            Resource: "*"
+          - Sid: "AllowBillingAll"
+            Effect: "Allow"
+            Action:
+              - "billing:*"
+            Resource: "*"
+
+
+Outputs:
+  # Stack Name
+  StackName:
+    Description: "Stack name"
+    Value: !Sub "${AWS::StackName}"
+
+  # USER ROLES
+
+  # Company Billing
+  CompanyBilling:
+    Description: "Company Billing Role"
+    Value: !Ref "CompanyBilling"

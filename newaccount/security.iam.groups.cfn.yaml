@@ -1,0 +1,498 @@
+# Sets up security account with groups to assume roles in other parts of the company and manage IAM
+# Groups setup are
+# All Users
+# IAM Admins (Full READ ONLY + Can only start, stop and restart EC2, RDS, View EBS Backups, Create AMIs, Snapshots for EBS and RDS)
+# Support Users
+# Production
+#   Full Admin
+#   Operations
+#   Read-Only
+# Development
+#   Full Admin
+#   Operations
+#   Read-Only
+# Billing
+#   Full Admin
+#   Operations - Not Operational
+#   Read-Only - Not Operational
+#
+
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Setup default IAM groups and policies to assume roles in other parts of the organisation'
+Parameters:
+  # Production IAM account ID
+  IAMProdAccountId:
+    Type: String
+    Description: "Production account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+  # Development IAM account ID
+  IAMDevAccountId:
+    Type: String
+    Description: "Development account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+  # Billing IAM account ID
+  IAMBillingAccountId:
+    Type: String
+    Description: "Billing account"
+    AllowedPattern: "[0-9]{12}"
+    MinLength: 12
+    MaxLength: 12
+    Default: "123456789876"
+
+Mappings: 
+
+  # Creation of IAM ARNs for organisation roles
+  RoleARN:
+    production:
+      adminro: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+          - AccountID: !Ref IAMProdAccountId
+      adminfull: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyAdminFull'
+          - AccountID: !Ref IAMProdAccountId
+      operations: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyOps'
+          - AccountID: !Ref IAMProdAccountId
+    development:
+      adminro: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+          - AccountID: !Ref IAMDevAccountId
+      adminfull: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyAdminFull'
+          - AccountID: !Ref IAMDevAccountId
+      operations: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyOps'
+          - AccountID: !Ref IAMDevAccountId
+    billing:
+      # adminro: 
+      #   - !Sub 
+      #     - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+      #     - AccountID: !Ref IAMBillingAccountId
+      adminfull: 
+        - !Sub 
+          - 'arn:aws:iam::${AccountID}:role/CompanyBilling'
+          - AccountID: !Ref IAMBillingAccountId
+      # operations: 
+      #   - !Sub 
+      #     - 'arn:aws:iam::${AccountID}:role/CompanyOps'
+      #     - AccountID: !Ref IAMBillingAccountId
+
+Resources: 
+
+  # All Users
+  # All Users are allowed read-only access in the identity account
+  CompanyAllUsers:
+    Type: 'AWS::IAM::Group'
+    Properties:
+      GroupName: CompanyAllUsers
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/IAMReadOnlyAccess
+
+  # IAM Admin Users
+  # IAM Admin Users are allowed specific IAM admin access in the identity account
+  CompanyIAMAdmin:
+    Type: 'AWS::IAM::Group'
+    Properties:
+      GroupName: CompanyIAMAdmin      
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/IAMFullAccess
+
+  # Support Users
+  # Support users are allowed to raise and manage AWS support tickets
+  # And to otherwise perform support operations
+  CompanySupportUsers:
+    Type: 'AWS::IAM::Group'
+    Properties:
+      GroupName: CompanySupportUsers
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSSupportAccess
+
+
+  # ----------------------------------
+  # UTILITY MANAGED POLICIES
+  # ----------------------------------
+
+  # Manage Own IAM Credentials
+  ManageOwnIAMCredentials:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties: 
+      Description: 'Allows users to manage their own IAM credentials'
+      ManagedPolicyName: ManageOwnIAMCredentials
+      Groups:
+        - !Ref CompanyAllUsers
+      Path: '/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: 'AllowUsersAllActionsForCredentials'
+            Effect: 'Allow'
+            Action:
+              - iam:*AccessKey*
+              - iam:*ServiceSpecificCredential*
+              - iam:*SigningCertificate*
+              - iam:ChangePassword
+              - iam:GetUser
+            Resource:
+              - !Sub 'arn:aws:iam::${AWS::AccountId}:user/${!aws:username}'
+
+          - Sid: 'AllowUsersToSeeStatsOnIAMConsoleDashboard'
+            Effect: 'Allow'
+            Action:
+              - iam:GetAccount*
+              - iam:ListAccount*
+            Resource:
+              - "*"
+
+          - Sid: 'AllowUsersToListUsersInConsole'
+            Effect: 'Allow'
+            Action:
+              - iam:ListUsers
+              - iam:GetAccountPasswordPolicy
+            Resource: 
+              - "*"
+
+  # Manage Own MFA 
+  ManageOwnMFA:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties: 
+      Description: 'Allows users to manage their own MFA credentials'
+      ManagedPolicyName: ManageOwnMFA
+      Groups:
+        - !Ref CompanyAllUsers
+      Path: '/'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:     
+
+        - Sid: AllowUsersToCreateDeleteTheirOwnVirtualMFADevices
+          Effect: Allow
+          Action:
+            - iam:*VirtualMFADevice
+          Resource: 
+            - !Sub "arn:aws:iam::${AWS::AccountId}:mfa/${!aws:username}"
+
+        - Sid: AllowUsersToEnableSyncDisableTheirOwnMFADevices
+          Effect: Allow
+          Action:
+            - "iam:DeactivateMFADevice"
+            - "iam:EnableMFADevice"
+            - "iam:ListMFADevices"
+            - "iam:ResyncMFADevice"
+          Resource: 
+            - !Sub "arn:aws:iam::${AWS::AccountId}:user/${!aws:username}"
+
+        - Sid: AllowUsersToListVirtualMFADevices
+          Effect: Allow
+          Action:
+            - iam:ListVirtualMFADevices
+          Resource: 
+            - !Sub "arn:aws:iam::${AWS::AccountId}:mfa/*"
+  
+
+
+
+  # ----------------------------------
+  # CROSS-ACCOUNT GROUPS
+  # ----------------------------------
+
+
+  # ---- PROD ----
+
+  CompanyProdAdminFull:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyProdAdminFull
+      Path: '/'
+
+  CompanyProdAdminRO:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyProdAdminRO
+      Path: '/'
+
+  CompanyProdOps:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyProdOps
+      Path: '/'
+
+
+
+  # ---- DEV ----
+
+  CompanyDevAdminFull:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyDevAdminFull
+      Path: '/'
+
+  CompanyDevAdminRO:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyDevAdminRO
+      Path: '/'
+
+  CompanyDevOps:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyDevOps
+      Path: '/'
+
+
+
+  # ---- Billing ----
+
+  CompanyBillingAdminFull:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: CompanyBillingAdminFull
+      Path: '/'
+
+  # CompanyBillingAdminRO:
+  #   Type: AWS::IAM::Group
+  #   Properties:
+  #     GroupName: CompanyBillingAdminRO
+  #     Path: '/'
+
+  # CompanyBillingOps:
+  #   Type: AWS::IAM::Group
+  #   Properties:
+  #     GroupName: CompanyBillingOps
+  #     Path: '/'
+
+  # ---- PROD ----
+
+  AssumeProdAdminFullRole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeProdAdminFullRole
+      Groups:
+      - !Ref CompanyProdAdminFull
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeProdAdminFullRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyAdminFull'
+              - AccountID: !Ref IAMProdAccountId
+
+
+  AssumeProdAdminRORole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeProdAdminRORole
+      Groups:
+      - !Ref CompanyProdAdminRO
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeProdAdminRORole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+              - AccountID: !Ref IAMProdAccountId
+
+  AssumeProdOpsRole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeProdOpsRole
+      Groups:
+      - !Ref CompanyProdOps
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeProdOpsRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyOps'
+              - AccountID: !Ref IAMProdAccountId
+
+
+  # ---- DEV ----
+
+  AssumeDevAdminFullRole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeDevAdminFullRole
+      Groups:
+      - !Ref CompanyDevAdminFull
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeDevAdminFullRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyAdminFull'
+              - AccountID: !Ref IAMDevAccountId
+
+
+  AssumeDevAdminRORole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeDevAdminRORole
+      Groups:
+      - !Ref CompanyDevAdminRO
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeDevAdminRORole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyAdminRO'
+              - AccountID: !Ref IAMDevAccountId
+
+  AssumeDevOpsRole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeDevOpsRole
+      Groups:
+      - !Ref CompanyDevOps
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeDevOpsRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyOps'
+              - AccountID: !Ref IAMDevAccountId
+
+
+  # ---- BILLING ----
+
+  AssumeBillingAdminFullRole:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssumeBillingAdminFullRole
+      Groups:
+      - !Ref CompanyBillingAdminFull
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AssumeBillingAdminFullRole
+            Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Resource: !Sub 
+              - 'arn:aws:iam::${AccountID}:role/CompanyBilling'
+              - AccountID: !Ref IAMBillingAccountId
+
+
+  # AssumeBillingAdminRORole:
+  #   Type: AWS::IAM::Policy
+  #   Properties:
+  #     PolicyName: AssumeBillingAdminRORole
+  #     Groups:
+  #     - !Ref CompanyBillingAdminRO
+  #     PolicyDocument: 
+  #       Version: '2012-10-17'
+  #       Statement: 
+  #         - Sid: AssumeBillingAdminRORole
+  #           Effect: Allow
+  #           Action:
+  #             - sts:AssumeRole
+  #           Resource:
+  #             - !FindInMap [ RoleARN, billing, adminro ]
+
+  # AssumeBillingOpsRole:
+  #   Type: AWS::IAM::Policy
+  #   Properties:
+  #     PolicyName: AssumeBillingOpsRole
+  #     Groups:
+  #     - !Ref CompanyBillingOps
+  #     PolicyDocument: 
+  #       Version: '2012-10-17'
+  #       Statement: 
+  #         - Sid: AssumeBillingOpsRole
+  #           Effect: Allow
+  #           Action:
+  #             - sts:AssumeRole
+  #           Resource:
+  #             - !FindInMap [ RoleARN, billing, operations ]
+
+
+Outputs:
+  # Stack Name
+  StackName:
+    Description: "Stack name"
+    Value: !Sub "${AWS::StackName}"
+
+  # Utility Groups
+  CompanyAllUsers:
+    Description: IAM Group - All Users
+    Value: !Ref CompanyAllUsers
+
+  CompanyIAMAdmin:
+    Description: IAM Group - IAM Admins
+    Value: !Ref CompanyIAMAdmin
+
+  CompanySupportUsers:
+    Description: IAM Group - Support Users
+    Value: !Ref CompanySupportUsers
+
+  # Role Groups
+  CompanyProdAdminFull:
+    Description: IAM Group - Production - Full Admin
+    Value: !Ref CompanyProdAdminFull
+
+  CompanyProdAdminRO:
+    Description: IAM Group - Production - Read-Only
+    Value: !Ref CompanyProdAdminRO
+
+  CompanyProdOps:
+    Description: IAM Group - Production - Operations
+    Value: !Ref CompanyProdOps
+
+  CompanyDevAdminFull:
+    Description: IAM Group - Development - Full Admin
+    Value: !Ref CompanyDevAdminFull
+
+  CompanyDevAdminRO:
+    Description: IAM Group - Development - Read-Only
+    Value: !Ref CompanyDevAdminRO
+
+  CompanyDevOps:
+    Description: IAM Group - Development - Operations
+    Value: !Ref CompanyDevOps
+
+  CompanyBillingAdminFull:
+    Description: IAM Group - Billing - Full Admin
+    Value: !Ref CompanyBillingAdminFull
+
+  # CompanyBillingAdminRO:
+  #   Description: IAM Group - Billing - Read-Only
+  #   Value: !Ref CompanyBillingAdminRO
+
+  # CompanyBillingOps:
+  #   Description: IAM Group - Billing - Operations
+  #   Value: !Ref CompanyBillingOps
